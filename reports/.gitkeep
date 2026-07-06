@@ -1,0 +1,2 @@
+# This directory contains the Power BI report file: Olist_Sales_Dashboard.pbix
+# The report is connected to the local Postgres database, and contains cached data.

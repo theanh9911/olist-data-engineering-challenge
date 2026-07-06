@@ -1,0 +1,40 @@
+# ===== Data files (downloaded, not committed) =====
+data/*.csv
+data/*.zip
+
+# ===== Python =====
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+.uv/
+dist/
+build/
+
+# ===== dbt =====
+dbt_project/target/
+dbt_project/logs/
+dbt_project/dbt_packages/
+dbt_project/.user.yml
+
+# ===== Ingestion outputs =====
+ingestion/reconciliation_proof.txt
+
+# ===== Airflow =====
+airflow/logs/
+airflow/plugins/__pycache__/
+
+# ===== Environment =====
+.env
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+
+# ===== IDE =====
+.vscode/
+.idea/
+
+# ===== Docker volumes =====
+postgres_data/

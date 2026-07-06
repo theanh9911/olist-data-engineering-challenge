@@ -1,0 +1,104 @@
+version: "3.8"
+
+# ============================================================
+# Olist Sales Analytics — Docker Compose
+# Dựng toàn bộ hạ tầng: PostgreSQL 15 + Apache Airflow + Metabase
+# ============================================================
+
+x-airflow-common: &airflow-common
+  build:
+    context: ./airflow
+    dockerfile: Dockerfile
+  environment:
+    - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+    - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://olist_admin:olist_secret_2024@postgres:5432/olist_warehouse
+    - AIRFLOW__CORE__LOAD_EXAMPLES=false
+    - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW__CORE__FERNET_KEY:-default-fernet-key-for-dev-only-change-in-prod}
+    - AIRFLOW__WEBSERVER__SECRET_KEY=${AIRFLOW__WEBSERVER__SECRET_KEY:-default-secret-key-for-dev}
+    - PYTHONPATH=/opt/airflow/ingestion/src
+    - POSTGRES_HOST=postgres
+    - POSTGRES_PORT=5432
+    - POSTGRES_USER=olist_admin
+    - POSTGRES_PASSWORD=olist_secret_2024
+    - POSTGRES_DB=olist_warehouse
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags
+    - ./airflow/logs:/opt/airflow/logs
+    - ./dbt_project:/opt/airflow/dbt_project
+    - ./ingestion:/opt/airflow/ingestion
+    - ./data:/opt/airflow/data
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  # ============================================================
+  # PostgreSQL 15 — Data Warehouse
+  # ============================================================
+  postgres:
+    image: postgres:15
+    container_name: olist_postgres
+    environment:
+      POSTGRES_USER: olist_admin
+      POSTGRES_PASSWORD: olist_secret_2024
+      POSTGRES_DB: olist_warehouse
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U olist_admin -d olist_warehouse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ============================================================
+  # Airflow Init — Khởi tạo database và user admin
+  # ============================================================
+  airflow-init:
+    <<: *airflow-common
+    container_name: olist_airflow_init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create \
+          --username admin \
+          --password admin \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@example.com || true
+    restart: "no"
+
+  # ============================================================
+  # Airflow Webserver — UI quản lý DAGs
+  # ============================================================
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: olist_airflow_webserver
+    command: airflow webserver --port 8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ============================================================
+  # Airflow Scheduler — Chạy DAGs theo lịch
+  # ============================================================
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: olist_airflow_scheduler
+    command: airflow scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

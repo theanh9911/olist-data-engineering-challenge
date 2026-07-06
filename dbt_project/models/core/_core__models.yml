@@ -1,0 +1,118 @@
+version: 2
+
+models:
+  - name: dim_products
+    description: "Product dimension with English category names"
+    columns:
+      - name: product_id
+        description: "Primary key — unique product identifier"
+        tests:
+          - unique
+          - not_null
+      - name: category_english
+        description: "Product category in English (COALESCE fallback from Portuguese)"
+        tests:
+          - not_null
+
+  - name: dim_date
+    description: "Date dimension spine covering 2016-01-01 to 2018-12-31"
+    columns:
+      - name: date_day
+        description: "Primary key — calendar date"
+        tests:
+          - unique
+          - not_null
+
+  - name: dim_exchange_rates
+    description: "BRL→USD exchange rates with Forward-fill for weekends/holidays"
+    columns:
+      - name: date_day
+        description: "Primary key — calendar date"
+        tests:
+          - unique
+          - not_null
+      - name: brl_to_usd_rate
+        description: "Exchange rate (forward-filled on weekends)"
+        tests:
+          - not_null
+
+  - name: dim_customers
+    description: "Customer dimension with SCD Type 2 for geographic tracking"
+    columns:
+      - name: customer_key
+        description: "Surrogate key (customer_unique_id + valid_from)"
+        tests:
+          - unique
+          - not_null
+      - name: customer_unique_id
+        description: "Natural key — true customer identifier"
+        tests:
+          - not_null
+
+  - name: fact_order_items
+    description: "Fact table — 1 row = 1 product item in an order. Revenue in BRL and USD."
+    columns:
+      - name: order_item_key
+        description: "Primary key (order_id + order_item_id)"
+        tests:
+          - unique
+          - not_null
+      - name: order_id
+        tests:
+          - not_null
+      - name: customer_key
+        description: "Customer surrogate key matching dim_customers"
+        tests:
+          - relationships:
+              to: ref('dim_customers')
+              field: customer_key
+              severity: warn
+      - name: product_id
+        description: "Product natural key matching dim_products"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_products')
+              field: product_id
+              severity: warn
+      - name: purchase_date
+        tests:
+          - not_null
+      - name: price_brl
+        tests:
+          - not_null
+      - name: price_usd
+        description: "USD price after FX conversion"
+        tests:
+          - not_null
+      - name: order_status
+        tests:
+          - accepted_values:
+              values: ['created', 'approved', 'processing', 'invoiced', 'shipped', 'delivered', 'canceled', 'unavailable']
+
+  - name: fact_order_payments
+    description: "Fact table — 1 row = 1 payment method per order. INDEPENDENT from fact_order_items."
+    columns:
+      - name: order_payment_key
+        description: "Primary key (order_id + payment_sequential)"
+        tests:
+          - unique
+          - not_null
+      - name: customer_key
+        description: "Customer surrogate key matching dim_customers (with pending_refresh fallback)"
+        tests:
+          - relationships:
+              to: ref('dim_customers')
+              field: customer_key
+              severity: warn
+      - name: customer_unique_id
+        description: "Natural key — true customer identifier"
+      - name: payment_type
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['credit_card', 'boleto', 'voucher', 'debit_card', 'not_defined']
+      - name: payment_value_usd
+        description: "USD payment value after FX conversion"
+        tests:
+          - not_null

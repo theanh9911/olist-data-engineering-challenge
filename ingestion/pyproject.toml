@@ -1,0 +1,17 @@
+[project]
+name = "olist-ingestion"
+version = "0.1.0"
+description = "Data ingestion scripts for Olist Sales Analytics — Load CSV + Fetch FX rates"
+requires-python = ">=3.11"
+dependencies = [
+    "psycopg2-binary>=2.9",
+    "pandas>=2.0",
+    "requests>=2.31",
+    "python-dotenv>=1.0",
+    "kagglehub>=0.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]

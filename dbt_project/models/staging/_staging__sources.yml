@@ -1,0 +1,25 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: raw
+    description: "Raw data loaded from Olist CSV files and Frankfurter API"
+    tables:
+      - name: orders
+        description: "Raw orders table — 1 row per order"
+      - name: order_items
+        description: "Raw order items — 1 row per item in an order"
+      - name: order_payments
+        description: "Raw order payments — 1 row per payment method per order"
+      - name: customers
+        description: "Raw customers — 1 row per customer per order (customer_id is per-order!)"
+      - name: products
+        description: "Raw products catalog"
+      - name: sellers
+        description: "Raw sellers catalog"
+      - name: category_translation
+        description: "Product category name translation (Portuguese → English)"
+      - name: order_reviews
+        description: "Raw order reviews (excluded from MVP due to duplicate review_id)"
+      - name: exchange_rates
+        description: "BRL to USD exchange rates from Frankfurter API"

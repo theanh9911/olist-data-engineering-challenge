@@ -1,0 +1,2 @@
+# This directory stores raw CSV files downloaded from Kaggle.
+# Files are gitignored — run scripts/download_data.py to populate.

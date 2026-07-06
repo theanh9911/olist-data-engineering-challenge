@@ -1,0 +1,5 @@
+# This directory stores screenshots and evidence of:
+# - Airflow DAG runs
+# - dbt test results
+# - Idempotency proofs
+# - Dashboard screenshots
