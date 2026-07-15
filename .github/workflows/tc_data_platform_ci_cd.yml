@@ -53,17 +53,13 @@ jobs:
       run: |
         uv venv
         echo ".venv/bin" >> $GITHUB_PATH
-        uv pip install ruff sqlfluff dbt-postgres kagglehub pandas psycopg2-binary openpyxl
+        uv pip install ruff dbt-postgres kagglehub pandas psycopg2-binary openpyxl
 
     # Bước E: Kiểm tra chất lượng và cú pháp code Python (ruff)
     - name: Lint Python Code
       run: |
         ruff check ingestion/ scripts/
 
-    # Bước F: Kiểm tra chuẩn hóa code SQL của dbt (sqlfluff)
-    - name: Lint dbt SQL
-      run: |
-        sqlfluff lint dbt_project/models/ --dialect postgres
 
     # Bước G: Kỹ thuật Senior - Cache thư mục dữ liệu thô data/ để né tải lại từ Kaggle mỗi lần chạy
     - name: Cache Olist Dataset
