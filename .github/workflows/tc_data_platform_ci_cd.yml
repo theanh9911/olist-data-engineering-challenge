@@ -109,11 +109,25 @@ jobs:
                -d ${{ env.POSTGRES_DB }} \
                -f scripts/init_db.sql
 
-      # ── I. Nạp dữ liệu thô (Bronze layer) ────────────────────
+      # ── I. Nạp dữ liệu thô CSV (Bronze layer) ────────────────
       - name: Ingest CSV → raw schema
         working-directory: ingestion
         run: |
           uv run python src/load_csv.py
+
+      # ── I2. Fetch tỷ giá BRL→USD từ Frankfurter API ───────────
+      # Bắt buộc chạy trước dbt vì stg_exchange_rates phụ thuộc raw.exchange_rates
+      # --backfill: lấy toàn bộ lịch sử (1 API call duy nhất, idempotent)
+      - name: Fetch exchange rates (backfill)
+        working-directory: ingestion
+        env:
+          POSTGRES_HOST: ${{ env.POSTGRES_HOST }}
+          POSTGRES_PORT: ${{ env.POSTGRES_PORT }}
+          POSTGRES_DB: ${{ env.POSTGRES_DB }}
+          POSTGRES_USER: ${{ env.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
+        run: |
+          uv run python src/fetch_exchange_rates.py --backfill
 
       # ── J. Cài dbt packages (dbt_utils) ──────────────────────
       - name: Install dbt packages
