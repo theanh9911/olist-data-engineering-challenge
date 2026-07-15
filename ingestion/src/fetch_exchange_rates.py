@@ -106,7 +106,7 @@ def fetch_rate_single(target_date: str) -> dict:
 
             return {rate_date: rate_value}
 
-        except requests.exceptions.RequestException as e:
+        except requests.exceptions.RequestException:
             if attempt < MAX_RETRIES:
                 time.sleep(RETRY_DELAY_SECONDS * attempt)
             else:
