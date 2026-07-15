@@ -10,7 +10,6 @@ Usage:
     uv run python src/load_csv.py
 """
 
-import os
 import sys
 import pandas as pd
 import psycopg2
@@ -121,7 +120,7 @@ def load_csv_to_raw(data_dir: str, conn_string: str) -> dict:
 
         conn.commit()
         print(f"\n{'=' * 50}")
-        print(f"All tables loaded successfully into raw schema.")
+        print("All tables loaded successfully into raw schema.")
         print(f"Total: {sum(results.values()):,} rows across {len(results)} tables")
         print(f"{'=' * 50}")
 
@@ -145,6 +144,6 @@ if __name__ == "__main__":
     conn_string = get_connection_string()
 
     print(f"Data directory: {data_dir}")
-    print(f"Loading...\n")
+    print("Loading...\n")
 
     results = load_csv_to_raw(data_dir, conn_string)

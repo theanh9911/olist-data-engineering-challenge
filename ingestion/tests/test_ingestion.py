@@ -7,7 +7,6 @@ Usage: uv run pytest tests/
 import sys
 import os
 from unittest.mock import patch, MagicMock
-import pytest
 
 # Add src/ to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))

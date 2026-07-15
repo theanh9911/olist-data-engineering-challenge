@@ -21,11 +21,9 @@ Usage:
 """
 
 import argparse
-import sys
 import time
 import requests
 import psycopg2
-from psycopg2 import sql
 from datetime import date
 
 from config import get_connection_string
@@ -228,7 +226,6 @@ def fetch_and_upsert_rates(target_date: str, conn_string: str) -> None:
                 print(f"  [INFO] Found adequate history coverage: {count}/{total_days} days (from {min_db_date} to {max_db_date}). Skipping backfill.")
     except Exception as e:
         print(f"  [WARNING] Error checking coverage: {e}")
-        pass
 
     # 3. Trigger dynamic backfill if history is missing or boundaries are not covered
     if not has_sufficient_history:
