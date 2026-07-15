@@ -4,11 +4,11 @@
 
 SELECT
     order_id,
-    payment_sequential::INTEGER               AS payment_sequential,
+    payment_sequential::INTEGER as payment_sequential,
     payment_type,
-    payment_installments::INTEGER             AS payment_installments,
-    payment_value::DECIMAL(18, 4)             AS payment_value_brl,
+    payment_installments::INTEGER as payment_installments,
+    payment_value::DECIMAL(18, 4) as payment_value_brl,
     -- Composite primary key
-    order_id || '-' || payment_sequential      AS order_payment_key
+    order_id || '-' || payment_sequential as order_payment_key
 FROM {{ source('raw', 'order_payments') }}
 WHERE order_id IS NOT NULL

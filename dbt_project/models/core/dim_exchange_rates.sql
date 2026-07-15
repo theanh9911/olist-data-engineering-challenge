@@ -21,8 +21,8 @@ joined AS (
     SELECT
         ds.date_day,
         rr.brl_to_usd_rate AS raw_rate
-    FROM date_spine ds
-    LEFT JOIN raw_rates rr ON ds.date_day = rr.date_day
+    FROM date_spine AS ds
+    LEFT JOIN raw_rates AS rr ON ds.date_day = rr.date_day
 ),
 
 -- Forward-fill: carry last non-NULL rate forward
@@ -47,10 +47,12 @@ SELECT
             ORDER BY date_day
             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
         ),
-        (SELECT brl_to_usd_rate FROM {{ ref('stg_exchange_rates') }} ORDER BY date_day ASC LIMIT 1)
+        (
+            SELECT er.brl_to_usd_rate
+            FROM {{ ref('stg_exchange_rates') }} AS er
+            ORDER BY er.date_day ASC
+            LIMIT 1
+        )
     ) AS brl_to_usd_rate,
-    CASE
-        WHEN raw_rate IS NOT NULL THEN FALSE
-        ELSE TRUE
-    END AS is_forward_filled
+    raw_rate IS NULL AS is_forward_filled
 FROM forward_filled

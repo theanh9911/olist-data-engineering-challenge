@@ -6,11 +6,11 @@ SELECT
     order_id,
     customer_id,
     order_status,
-    order_purchase_timestamp::TIMESTAMP       AS order_purchase_timestamp,
-    order_approved_at::TIMESTAMP              AS order_approved_at,
-    order_delivered_carrier_date::TIMESTAMP    AS order_delivered_carrier_date,
-    order_delivered_customer_date::TIMESTAMP   AS order_delivered_customer_date,
-    order_estimated_delivery_date::TIMESTAMP   AS order_estimated_delivery_date,
+    order_purchase_timestamp::TIMESTAMP as order_purchase_timestamp,
+    order_approved_at::TIMESTAMP as order_approved_at,
+    order_delivered_carrier_date::TIMESTAMP as order_delivered_carrier_date,
+    order_delivered_customer_date::TIMESTAMP as order_delivered_customer_date,
+    order_estimated_delivery_date::TIMESTAMP as order_estimated_delivery_date,
     -- Extract DATE for joining with dim_date and dim_exchange_rates
     -- Convert source timezone (America/Sao_Paulo) to UTC before extracting date
     ((order_purchase_timestamp::TIMESTAMP AT TIME ZONE 'America/Sao_Paulo') AT TIME ZONE 'UTC')::DATE AS purchase_date

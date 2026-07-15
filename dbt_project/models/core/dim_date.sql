@@ -13,14 +13,11 @@ WITH date_spine AS (
 
 SELECT
     date_day,
-    EXTRACT(YEAR FROM date_day)::INTEGER     AS year,
-    EXTRACT(MONTH FROM date_day)::INTEGER    AS month,
-    EXTRACT(QUARTER FROM date_day)::INTEGER  AS quarter,
-    EXTRACT(DAY FROM date_day)::INTEGER      AS day_of_month,
-    EXTRACT(DOW FROM date_day)::INTEGER      AS day_of_week,  -- 0=Sunday
-    TO_CHAR(date_day, 'YYYY-MM')             AS year_month,
-    CASE
-        WHEN EXTRACT(DOW FROM date_day) IN (0, 6) THEN TRUE
-        ELSE FALSE
-    END AS is_weekend
+    extract(year from date_day)::integer as year,
+    extract(month from date_day)::integer as month,
+    extract(quarter from date_day)::integer as quarter,
+    extract(day from date_day)::integer as day_of_month,
+    extract(dow from date_day)::integer as day_of_week,  -- 0=Sunday
+    to_char(date_day, 'YYYY-MM') as year_month,
+    extract(dow from date_day) in (0, 6) as is_weekend
 FROM date_spine
