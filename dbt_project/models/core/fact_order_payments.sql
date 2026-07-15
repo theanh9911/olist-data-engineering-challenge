@@ -54,4 +54,3 @@ LEFT JOIN {{ ref('dim_exchange_rates') }} AS fx
     -- The `merge` strategy on `unique_key` ensures safe upserts without duplication.
     WHERE o.purchase_date >= (SELECT MAX(t.purchase_date) - INTERVAL '30 days' FROM {{ this }} AS t)
 {% endif %}
-
