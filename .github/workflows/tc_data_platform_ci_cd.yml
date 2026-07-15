@@ -1,22 +1,37 @@
 name: TC Data Platform CI/CD
 
-# 1. Triggers: Chạy khi push hoặc mở PR vào nhánh main
+# Trigger: chạy khi push hoặc mở PR vào nhánh main
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
+
+# ============================================================
+# BIẾN DÙNG CHUNG TOÀN BỘ PIPELINE
+# ============================================================
+env:
+  PYTHON_VERSION: "3.11"
+  DBT_VERSION: "1.7.*"
+  POSTGRES_HOST: localhost
+  POSTGRES_PORT: 5432
+  POSTGRES_DB: olist_sales_test
+  POSTGRES_USER: test_user
+  POSTGRES_PASSWORD: test_password
 
 jobs:
   # ============================================================
-  # JOB 1: TÍCH HỢP LIÊN TỤC (CI) - KIỂM THỬ TỰ ĐỘNG
+  # JOB 1: TÍCH HỢP LIÊN TỤC (CI)
+  # Nguyên tắc "Fail Fast": kiểm tra nhanh/rẻ trước, chậm sau
+  # Thứ tự: Lint → Setup DB → Ingest → dbt run → dbt test
   # ============================================================
   continuous-integration:
+    name: CI — Test Data Pipeline
     runs-on: ubuntu-latest
 
-    # Khởi động cụm dịch vụ Postgres 15 ảo chạy nền phục vụ test
+    # Postgres test DB chạy song song ngay từ đầu để tiết kiệm thời gian
     services:
-      postgres_test:
+      postgres:
         image: postgres:15
         env:
           POSTGRES_DB: olist_sales_test
@@ -24,7 +39,6 @@ jobs:
           POSTGRES_PASSWORD: test_password
         ports:
           - 5432:5432
-        # Đợi Postgres khởi động hoàn toàn
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -32,136 +46,143 @@ jobs:
           --health-retries 5
 
     steps:
-    # Bước A: Tải mã nguồn từ GitHub
-    - name: Checkout Code
-      uses: actions/checkout@v3
+      # ── A. Checkout ──────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    # Bước B: Khởi tạo Python 3.11
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
+      # ── B. Setup Python ───────────────────────────────────────
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
 
-    # Bước C: Cài đặt uv (Package manager siêu tốc)
-    - name: Install uv
-      run: |
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-        echo "$HOME/.local/bin" >> $GITHUB_PATH
+      # ── C. Cài uv (package manager) ───────────────────────────
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-    # Bước D: Tạo virtual environment và cài đặt dependencies cho phần Ingestion & dbt
-    - name: Install dependencies
-      run: |
-        uv venv
-        echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
-        uv pip install ruff dbt-postgres kagglehub pandas psycopg2-binary openpyxl
+      # ── D. Cài tất cả dependencies vào venv tuyệt đối ─────────
+      # Pin dbt version khớp với Dockerfile để đảm bảo môi trường nhất quán
+      - name: Install Python dependencies
+        run: |
+          uv venv
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
+          uv pip install \
+            ruff==0.5.* \
+            "dbt-postgres==${{ env.DBT_VERSION }}" \
+            kagglehub \
+            pandas \
+            psycopg2-binary \
+            openpyxl
 
-    # Bước E: Kiểm tra chất lượng và cú pháp code Python (ruff)
-    - name: Lint Python Code
-      run: |
-        ruff check ingestion/ scripts/
+      # ── E. [FAIL FAST] Lint Python — kiểm tra trước khi làm gì ─
+      # Nếu code Python lỗi style → fail ngay, không tốn thời gian DB
+      - name: Lint Python code (ruff)
+        run: |
+          ruff check ingestion/ scripts/
 
+      # ── F. Cache dataset Kaggle để né tải lại mỗi lần ──────────
+      - name: Cache Olist dataset
+        id: cache-olist
+        uses: actions/cache@v4
+        with:
+          path: data/
+          key: olist-dataset-v1
 
-    # Bước G: Kỹ thuật Senior - Cache thư mục dữ liệu thô data/ để né tải lại từ Kaggle mỗi lần chạy
-    - name: Cache Olist Dataset
-      id: cache-dataset
-      uses: actions/cache@v3
-      with:
-        path: data/
-        key: olist-dataset-v1
+      # ── G. Tải dataset nếu cache miss ────────────────────────
+      - name: Download Olist dataset (if not cached)
+        if: steps.cache-olist.outputs.cache-hit != 'true'
+        env:
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+        run: |
+          uv run python scripts/download_data.py
 
-    # Bước H: Nếu không trúng cache, chạy script tự động tải dữ liệu Olist từ Kaggle
-    - name: Download Olist Dataset (If not cached)
-      if: steps.cache-dataset.outputs.cache-hit != 'true'
-      run: |
-        uv run scripts/download_data.py
+      # ── H. Khởi tạo schemas trong Postgres test ───────────────
+      - name: Initialize database schemas
+        env:
+          PGPASSWORD: ${{ env.POSTGRES_PASSWORD }}
+        run: |
+          psql -h ${{ env.POSTGRES_HOST }} \
+               -U ${{ env.POSTGRES_USER }} \
+               -d ${{ env.POSTGRES_DB }} \
+               -f scripts/init_db.sql
 
-    # Bước I: Tạo các schema ban đầu (raw, staging, core, snapshots) trong database test Postgres
-    - name: Initialize Database Schemas
-      env:
-        PGPASSWORD: test_password
-      run: |
-        psql -h localhost -U test_user -d olist_sales_test -f scripts/init_db.sql
+      # ── I. Nạp dữ liệu thô (Bronze layer) ────────────────────
+      - name: Ingest CSV → raw schema
+        working-directory: ingestion
+        run: |
+          uv run python src/load_csv.py
 
-    # Bước J: Chạy script nạp dữ liệu thô (Bronze)
-    - name: Run Ingest Script (load_csv.py)
-      env:
-        POSTGRES_HOST: localhost
-        POSTGRES_PORT: 5432
-        POSTGRES_DB: olist_sales_test
-        POSTGRES_USER: test_user
-        POSTGRES_PASSWORD: test_password
-      run: |
-        cd ingestion
-        uv run python src/load_csv.py
+      # ── J. Cài dbt packages (dbt_utils) ──────────────────────
+      - name: Install dbt packages
+        working-directory: dbt_project
+        run: |
+          dbt deps
 
-    # Bước K: Chạy dbt snapshot để tạo dữ liệu khách hàng SCD Type 2
-    - name: Run dbt Snapshot
-      env:
-        POSTGRES_HOST: localhost
-        POSTGRES_PORT: 5432
-        POSTGRES_DB: olist_sales_test
-        POSTGRES_USER: test_user
-        POSTGRES_PASSWORD: test_password
-      run: |
-        cd dbt_project
-        dbt deps
-        dbt snapshot --profiles-dir .
+      # ── K. Chạy dbt snapshot (SCD Type 2) ────────────────────
+      - name: Run dbt snapshot
+        working-directory: dbt_project
+        run: |
+          dbt snapshot --profiles-dir .
 
-    # Bước L: Chạy dbt run để kiểm tra quá trình biến đổi dữ liệu (Transform)
-    - name: Run dbt Models
-      env:
-        POSTGRES_HOST: localhost
-        POSTGRES_PORT: 5432
-        POSTGRES_DB: olist_sales_test
-        POSTGRES_USER: test_user
-        POSTGRES_PASSWORD: test_password
-      run: |
-        cd dbt_project
-        dbt run --profiles-dir .
+      # ── L. Chạy dbt models (Silver + Gold layer) ─────────────
+      - name: Run dbt models
+        working-directory: dbt_project
+        run: |
+          dbt run --profiles-dir .
 
-    # Bước M: Chạy dbt test để kiểm tra 12 ràng buộc dữ liệu & báo cáo đối soát tài chính
-    - name: Run dbt Tests
-      env:
-        POSTGRES_HOST: localhost
-        POSTGRES_PORT: 5432
-        POSTGRES_DB: olist_sales_test
-        POSTGRES_USER: test_user
-        POSTGRES_PASSWORD: test_password
-      run: |
-        cd dbt_project
-        dbt test --profiles-dir .
+      # ── M. [QUAN TRỌNG NHẤT] Chạy dbt tests ──────────────────
+      # Kiểm tra toàn bộ ràng buộc dữ liệu và reconciliation
+      - name: Run dbt tests
+        working-directory: dbt_project
+        run: |
+          dbt test --profiles-dir .
 
   # ============================================================
-  # JOB 2: GIAO HÀNG LIÊN TỤC (CD) - DỰNG DOCKER & PHÁT HÀNH
+  # JOB 2: GIAO HÀNG LIÊN TỤC (CD)
+  # Nguyên tắc: chỉ deploy khi CI đã pass hoàn toàn
+  # Chỉ chạy khi merge vào main (không chạy khi mở PR)
   # ============================================================
   continuous-deployment:
-    needs: continuous-integration # Chỉ chạy CD khi toàn bộ các bài test ở CI phía trên thành công
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' # Chỉ chạy khi merge vào main
+    name: CD — Build & Push Docker Image
+    needs: continuous-integration
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
+    # Cấp quyền ghi vào GitHub Container Registry
+    permissions:
+      contents: read
+      packages: write
+
     steps:
-    # 1. Tải code mới nhất từ main
-    - name: Checkout Code
-      uses: actions/checkout@v3
+      # ── 1. Checkout ───────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    # 2. Khởi tạo công cụ Docker Buildx để build image tối ưu
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v2
+      # ── 2. Setup Docker Buildx (hỗ trợ build cache) ──────────
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-    # 3. Đăng nhập vào kho lưu trữ Container của GitHub (GHCR)
-    - name: Login to GitHub Container Registry
-      uses: docker/login-action@v2
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+      # ── 3. Đăng nhập vào GitHub Container Registry ───────────
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-    # 4. Đóng gói (Build) cụm Airflow chứa dbt/DAGs mới và đẩy lên Registry (Push)
-    - name: Build and Push Airflow Image
-      uses: docker/build-push-action@v4
-      with:
-        context: ./airflow
-        push: true
-        tags: |
-          ghcr.io/${{ github.repository }}/olist-airflow:latest
-          ghcr.io/${{ github.repository }}/olist-airflow:${{ github.sha }}
+      # ── 4. Build & Push image Airflow ─────────────────────────
+      # Tag cả latest và SHA cụ thể để có thể rollback chính xác
+      - name: Build and push Airflow image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./airflow
+          push: true
+          # Cache layer Docker để build nhanh hơn ở lần sau
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: |
+            ghcr.io/${{ github.repository }}/olist-airflow:latest
+            ghcr.io/${{ github.repository }}/olist-airflow:${{ github.sha }}
