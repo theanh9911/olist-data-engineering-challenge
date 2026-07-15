@@ -1,0 +1,171 @@
+name: TC Data Platform CI/CD
+
+# 1. Triggers: Chạy khi push hoặc mở PR vào nhánh main
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  # ============================================================
+  # JOB 1: TÍCH HỢP LIÊN TỤC (CI) - KIỂM THỬ TỰ ĐỘNG
+  # ============================================================
+  continuous-integration:
+    runs-on: ubuntu-latest
+
+    # Khởi động cụm dịch vụ Postgres 15 ảo chạy nền phục vụ test
+    services:
+      postgres_test:
+        image: postgres:15
+        env:
+          POSTGRES_DB: olist_sales_test
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5432:5432
+        # Đợi Postgres khởi động hoàn toàn
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    # Bước A: Tải mã nguồn từ GitHub
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    # Bước B: Khởi tạo Python 3.11
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    # Bước C: Cài đặt uv (Package manager siêu tốc)
+    - name: Install uv
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+    # Bước D: Tạo virtual environment và cài đặt dependencies cho phần Ingestion & dbt
+    - name: Install dependencies
+      run: |
+        uv venv
+        echo ".venv/bin" >> $GITHUB_PATH
+        uv pip install ruff sqlfluff dbt-postgres kagglehub pandas psycopg2-binary openpyxl
+
+    # Bước E: Kiểm tra chất lượng và cú pháp code Python (ruff)
+    - name: Lint Python Code
+      run: |
+        ruff check ingestion/ scripts/
+
+    # Bước F: Kiểm tra chuẩn hóa code SQL của dbt (sqlfluff)
+    - name: Lint dbt SQL
+      run: |
+        sqlfluff lint dbt_project/models/ --dialect postgres
+
+    # Bước G: Kỹ thuật Senior - Cache thư mục dữ liệu thô data/ để né tải lại từ Kaggle mỗi lần chạy
+    - name: Cache Olist Dataset
+      id: cache-dataset
+      uses: actions/cache@v3
+      with:
+        path: data/
+        key: olist-dataset-v1
+
+    # Bước H: Nếu không trúng cache, chạy script tự động tải dữ liệu Olist từ Kaggle
+    - name: Download Olist Dataset (If not cached)
+      if: steps.cache-dataset.outputs.cache-hit != 'true'
+      run: |
+        uv run scripts/download_data.py
+
+    # Bước I: Tạo các schema ban đầu (raw, staging, core, snapshots) trong database test Postgres
+    - name: Initialize Database Schemas
+      env:
+        PGPASSWORD: test_password
+      run: |
+        psql -h localhost -U test_user -d olist_sales_test -f scripts/init_db.sql
+
+    # Bước J: Chạy script nạp dữ liệu thô (Bronze)
+    - name: Run Ingest Script (load_csv.py)
+      env:
+        POSTGRES_HOST: localhost
+        POSTGRES_PORT: 5432
+        POSTGRES_DB: olist_sales_test
+        POSTGRES_USER: test_user
+        POSTGRES_PASSWORD: test_password
+      run: |
+        cd ingestion
+        uv run python src/load_csv.py
+
+    # Bước K: Chạy dbt snapshot để tạo dữ liệu khách hàng SCD Type 2
+    - name: Run dbt Snapshot
+      env:
+        POSTGRES_HOST: localhost
+        POSTGRES_PORT: 5432
+        POSTGRES_DB: olist_sales_test
+        POSTGRES_USER: test_user
+        POSTGRES_PASSWORD: test_password
+      run: |
+        cd dbt_project
+        dbt deps
+        dbt snapshot --profiles-dir .
+
+    # Bước L: Chạy dbt run để kiểm tra quá trình biến đổi dữ liệu (Transform)
+    - name: Run dbt Models
+      env:
+        POSTGRES_HOST: localhost
+        POSTGRES_PORT: 5432
+        POSTGRES_DB: olist_sales_test
+        POSTGRES_USER: test_user
+        POSTGRES_PASSWORD: test_password
+      run: |
+        cd dbt_project
+        dbt run --profiles-dir .
+
+    # Bước M: Chạy dbt test để kiểm tra 12 ràng buộc dữ liệu & báo cáo đối soát tài chính
+    - name: Run dbt Tests
+      env:
+        POSTGRES_HOST: localhost
+        POSTGRES_PORT: 5432
+        POSTGRES_DB: olist_sales_test
+        POSTGRES_USER: test_user
+        POSTGRES_PASSWORD: test_password
+      run: |
+        cd dbt_project
+        dbt test --profiles-dir .
+
+  # ============================================================
+  # JOB 2: GIAO HÀNG LIÊN TỤC (CD) - DỰNG DOCKER & PHÁT HÀNH
+  # ============================================================
+  continuous-deployment:
+    needs: continuous-integration # Chỉ chạy CD khi toàn bộ các bài test ở CI phía trên thành công
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' # Chỉ chạy khi merge vào main
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. Tải code mới nhất từ main
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    # 2. Khởi tạo công cụ Docker Buildx để build image tối ưu
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    # 3. Đăng nhập vào kho lưu trữ Container của GitHub (GHCR)
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v2
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    # 4. Đóng gói (Build) cụm Airflow chứa dbt/DAGs mới và đẩy lên Registry (Push)
+    - name: Build and Push Airflow Image
+      uses: docker/build-push-action@v4
+      with:
+        context: ./airflow
+        push: true
+        tags: |
+          ghcr.io/${{ github.repository }}/olist-airflow:latest
+          ghcr.io/${{ github.repository }}/olist-airflow:${{ github.sha }}
